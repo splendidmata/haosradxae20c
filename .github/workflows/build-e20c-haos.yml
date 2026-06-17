@@ -137,6 +137,122 @@ jobs:
           # Build everything
           make -j$(nproc) 2>&1 | tee build.log
 
+      - name: Verify image structure
+        run: |
+          echo "============================================"
+          echo "  E20C HAOS Image Verification Report"
+          echo "============================================"
+          echo ""
+
+          IMAGE_DIR="haos/output/images"
+          IMAGE=$(ls ${IMAGE_DIR}/sdcard.img 2>/dev/null | head -1)
+
+          if [ -z "${IMAGE}" ]; then
+            echo "!!! FAIL: No sdcard.img found !!!"
+            ls -lh ${IMAGE_DIR}/ 2>/dev/null
+            exit 1
+          fi
+
+          IMAGE_SIZE=$(du -h "${IMAGE}" | cut -f1)
+          echo "[OK] Image found: ${IMAGE} (${IMAGE_SIZE})"
+
+          # 1. Check GPT partition table
+          echo ""
+          echo "--- Partition table ---"
+          sudo gdisk -l "${IMAGE}" | grep -E "^\s+[0-9]" || echo "WARN: No partitions detected"
+
+          # 2. Identify partition offsets via sgdisk
+          PART_INFO=$(sudo sgdisk -p "${IMAGE}")
+          echo "${PART_INFO}"
+
+          # Try to find boot and root partitions
+          BOOT_SECTOR=$(echo "${PART_INFO}" | grep -i "EFI\|boot\|FAT" | head -1 | awk '{print $2}')
+          ROOT_SECTOR=$(echo "${PART_INFO}" | grep -i "root\|Linux" | head -1 | awk '{print $2}')
+
+          if [ -z "${BOOT_SECTOR}" ] || [ -z "${ROOT_SECTOR}" ]; then
+            echo "WARN: Could not auto-detect partitions. Trying sector 34+..."
+            # Fallback: assume partition 1 = boot, partition 2 = root
+            BOOT_SECTOR=32768   # sector 16M (default offset)
+            ROOT_SECTOR=557056   # sector 272M
+          fi
+
+          BOOT_OFFSET=$((BOOT_SECTOR * 512))
+          ROOT_OFFSET=$((ROOT_SECTOR * 512))
+
+          echo ""
+          echo "Boot partition offset: ${BOOT_OFFSET} (sector ${BOOT_SECTOR})"
+          echo "Root partitiion offset: ${ROOT_OFFSET} (sector ${ROOT_SECTOR})"
+
+          # 3. Mount boot partition and check contents
+          echo ""
+          echo "--- Boot partition contents ---"
+          mkdir -p /tmp/boot-check
+          sudo mount -o ro,loop,offset=${BOOT_OFFSET} "${IMAGE}" /tmp/boot-check 2>/dev/null || {
+            echo "WARN: Could not mount boot partition at offset ${BOOT_OFFSET}"
+            # Try without offset (raw VFAT image)
+            BOOT_IMG=$(ls ${IMAGE_DIR}/boot*.fat 2>/dev/null | head -1)
+            if [ -n "${BOOT_IMG}" ]; then
+              sudo mount -o ro,loop "${BOOT_IMG}" /tmp/boot-check
+            fi
+          }
+
+          if mountpoint -q /tmp/boot-check; then
+            echo "Boot partition mounted OK"
+            ls -lh /tmp/boot-check/
+
+            # Check for kernel
+            if [ -f /tmp/boot-check/Image ]; then
+              echo "[OK] Kernel Image present ($(du -h /tmp/boot-check/Image | cut -f1))"
+            else
+              echo "!!! FAIL: Kernel Image missing !!!"
+            fi
+
+            # Check for DTB
+            DTB=$(ls /tmp/boot-check/rk3528*.dtb 2>/dev/null | head -1)
+            if [ -n "${DTB}" ]; then
+              echo "[OK] Device tree present: $(basename ${DTB})"
+            else
+              echo "!!! FAIL: No rk3528 device tree found !!!"
+            fi
+
+            # Check for boot script
+            if [ -f /tmp/boot-check/boot.scr ]; then
+              echo "[OK] boot.scr present"
+            else
+              echo "WARN: boot.scr missing"
+            fi
+
+            # Check for haos-config / cmdline
+            if [ -f /tmp/boot-check/cmdline.txt ]; then
+              echo "[OK] cmdline.txt present"
+              echo "    $(cat /tmp/boot-check/cmdline.txt)"
+            fi
+
+            sudo umount /tmp/boot-check
+          else
+            echo "WARN: Could not inspect boot partition"
+          fi
+
+          # 4. Check rootfs hash store (if EROFS)
+          echo ""
+          echo "--- Root filesystem check ---"
+          if ls ${IMAGE_DIR}/rootfs.erofs 1>/dev/null 2>&1; then
+            ROOTFS_IMG=$(ls ${IMAGE_DIR}/rootfs.erofs | head -1)
+            SIZE=$(du -h "${ROOTFS_IMG}" | cut -f1)
+            echo "[OK] EROFS rootfs: ${ROOTFS_IMG} (${SIZE})"
+          elif ls ${IMAGE_DIR}/rootfs.ext* 1>/dev/null 2>&1; then
+            ROOTFS_IMG=$(ls ${IMAGE_DIR}/rootfs.ext* | head -1)
+            SIZE=$(du -h "${ROOTFS_IMG}" | cut -f1)
+            echo "[OK] EXT rootfs: ${ROOTFS_IMG} (${SIZE})"
+          else
+            echo "WARN: No standalone rootfs image found (embedded in sdcard.img)"
+          fi
+
+          echo ""
+          echo "============================================"
+          echo "  Verification complete"
+          echo "============================================"
+
       - name: Show build results
         working-directory: haos
         run: |
