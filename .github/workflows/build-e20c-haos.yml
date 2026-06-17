@@ -127,8 +127,10 @@ jobs:
           key: buildroot-e20c-${{ inputs.haos_version }}-${{ inputs.kernel_version }}-v1
 
       - name: Build HAOS
+        id: build
         working-directory: haos
         run: |
+          set -o pipefail
           mkdir -p /tmp/buildroot-dl /tmp/buildroot-ccache
 
           # Add cache paths to defconfig
@@ -143,6 +145,7 @@ jobs:
           make BR2_EXTERNAL=buildroot-external -j$(nproc) 2>&1 | tee build.log
 
       - name: Verify image structure
+        if: success()
         run: |
           echo "============================================"
           echo "  E20C HAOS Image Verification Report"
