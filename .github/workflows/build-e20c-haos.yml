@@ -118,6 +118,18 @@ jobs:
           DEFCONFIG_PATH="haos/buildroot-external/configs/radxa_e20c_defconfig"
           sed -i "s|BR2_TARGET_UBOOT_CUSTOM_REPO_VERSION=.*|BR2_TARGET_UBOOT_CUSTOM_REPO_VERSION=\"${{ inputs.uboot_branch }}\"|" "${DEFCONFIG_PATH}"
 
+      - name: Remove incompatible HAOS U-Boot patches
+        run: |
+          # Radxa U-Boot (v2024.10) is not compatible with HAOS patches
+          # that target upstream U-Boot (v2026.04). Remove them before build.
+          PATCH_DIR="haos/buildroot-external/patches/uboot"
+          if [ -d "${PATCH_DIR}" ]; then
+            echo "Found HAOS U-Boot patches:"
+            ls -la "${PATCH_DIR}/"
+            rm -f "${PATCH_DIR}"/*.patch
+            echo "Removed all to avoid conflicts with Radxa U-Boot fork"
+          fi
+
       - name: Restore Buildroot cache
         uses: actions/cache@v4
         with:
