@@ -35,15 +35,19 @@ jobs:
 
       - name: Install build dependencies
         run: |
+          # Disable needrestart to prevent dpkg hangs
+          export DEBIAN_FRONTEND=noninteractive
+          sudo sed -i 's/#$nrconf{restart} = .*/$nrconf{restart} = "a";/' /etc/needrestart/needrestart.conf 2>/dev/null || true
+
           sudo apt update
           sudo apt install -y \
             git build-essential gcc g++ make bison flex \
-            libssl-dev libncurses-dev libelf-dev bc lz4 lzop \
+            libssl-dev libncurses-dev libelf-dev bc \
             xz-utils cpio rsync wget unzip python3 python3-pip \
             device-tree-compiler u-boot-tools \
             qemu-user-static binfmt-support \
             dosfstools mtools e2fsprogs gdisk \
-            podman podman-docker
+            podman
           sudo touch /etc/containers/nodocker
 
       - name: Clone HomeAssistant OS
@@ -55,12 +59,12 @@ jobs:
 
       - name: Install E20C board files
         run: |
-          sudo apt install -y dos2unix
+          sudo apt install -y dos2unix 2>/dev/null || true
           mkdir -p haos/buildroot-external/board/radxa/e20c
           cp -r e20c-haos/board/radxa/e20c/* haos/buildroot-external/board/radxa/e20c/
           cp e20c-haos/configs/radxa_e20c_defconfig haos/buildroot-external/configs/
           # Fix Windows line endings (CRLF -> LF) for shell scripts
-          dos2unix haos/buildroot-external/board/radxa/e20c/haos-hook.sh 2>/dev/null || true
+          dos2unix haos/buildroot-external/board/radxa/e20c/haos-hook.sh 2>/dev/null || sed -i 's/\r$//' haos/buildroot-external/board/radxa/e20c/haos-hook.sh
           chmod +x haos/buildroot-external/board/radxa/e20c/haos-hook.sh
 
       - name: Verify U-Boot defconfig exists
