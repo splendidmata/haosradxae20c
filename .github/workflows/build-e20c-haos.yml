@@ -110,10 +110,8 @@ jobs:
           DEFCONFIG_PATH="haos/buildroot-external/configs/radxa_e20c_defconfig"
           KERNEL_VER="${{ inputs.kernel_version }}"
           sed -i "s/BR2_LINUX_KERNEL_CUSTOM_VERSION_VALUE=.*/BR2_LINUX_KERNEL_CUSTOM_VERSION_VALUE=\"${KERNEL_VER}\"/" "${DEFCONFIG_PATH}"
-
-          # Update linux-headers version to match (use major.minor)
-          KERNEL_MAJMIN=$(echo "${KERNEL_VER}" | cut -d. -f1-2)
-          sed -i "s/BR2_PACKAGE_HOST_LINUX_HEADERS_CUSTOM_.*/BR2_PACKAGE_HOST_LINUX_HEADERS_CUSTOM_${KERNEL_MAJMIN//./_}=y/" "${DEFCONFIG_PATH}"
+          # Note: BR2_PACKAGE_HOST_LINUX_HEADERS_CUSTOM_6_12 is kept as-is;
+          # it only needs to be >= toolchain minimum, not match kernel version.
 
       - name: Update U-Boot version in defconfig
         run: |
@@ -142,7 +140,7 @@ jobs:
           make BR2_EXTERNAL=buildroot-external radxa_e20c_defconfig
 
           # Build everything
-          make -j$(nproc) 2>&1 | tee build.log
+          make BR2_EXTERNAL=buildroot-external -j$(nproc) 2>&1 | tee build.log
 
       - name: Verify image structure
         run: |
